@@ -104,7 +104,10 @@
 			[
 				2,
 				4,
-				6
+				6,
+				7,
+				8,
+				9
 			]
 		}
 	],
@@ -113,40 +116,55 @@
 		{
 			"backtrace" : 1,
 			"compileGroupIndex" : 0,
-			"path" : "gurt.cpp",
+			"path" : "cpurender/gurt.cpp",
 			"sourceGroupIndex" : 0
 		},
 		{
 			"backtrace" : 1,
 			"compileGroupIndex" : 0,
-			"path" : "hittable.cpp",
+			"path" : "cpurender/hittable.cpp",
 			"sourceGroupIndex" : 0
 		},
 		{
 			"backtrace" : 1,
-			"path" : "hittable.h",
+			"path" : "cpurender/hittable.h",
 			"sourceGroupIndex" : 1
 		},
 		{
 			"backtrace" : 1,
 			"compileGroupIndex" : 0,
-			"path" : "sphere.cpp",
+			"path" : "cpurender/sphere.cpp",
 			"sourceGroupIndex" : 0
 		},
 		{
 			"backtrace" : 1,
-			"path" : "sphere.h",
+			"path" : "cpurender/sphere.h",
 			"sourceGroupIndex" : 1
 		},
 		{
 			"backtrace" : 1,
 			"compileGroupIndex" : 0,
-			"path" : "hittable_list.cpp",
+			"path" : "cpurender/hittable_list.cpp",
 			"sourceGroupIndex" : 0
 		},
 		{
 			"backtrace" : 1,
-			"path" : "hittable_list.h",
+			"path" : "cpurender/hittable_list.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 1,
+			"path" : "cpurender/rtweekend.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 1,
+			"path" : "cpurender/interval.h",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 1,
+			"path" : "cpurender/camera.h",
 			"sourceGroupIndex" : 1
 		}
 	],

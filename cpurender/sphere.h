@@ -12,7 +12,7 @@
 class sphere : public hittable{
     public:
     sphere(const point3& center, double radius) : center(center), radius(std::max(0.0, radius)) {}
-    bool hit(const ray& r, double t_min, double t_max, hit_record& rec) const override {
+    bool hit(const ray& r, interval ray_t, hit_record& rec) const override  {
         vec3 oc = center - r.orig();
         auto a = r.dir().length_squared();
         auto h = dot(r.dir(),oc);
@@ -22,13 +22,14 @@ class sphere : public hittable{
 
         auto sqrtd = sqrt(discriminant);
         auto root = (h - sqrtd) / a;
-        if (root <= t_min || t_max <= root) {
+        if (!ray_t.surrounds(root)) {
             root = (h + sqrtd) / a;
-            if (root <= t_min) return false;
+            if (!ray_t.surrounds(root)) return false;
         }
         rec.t = root;
         rec.p = r.whereAt(rec.t);
-        rec.normal = (rec.p - center) / radius;
+        rec.normal = unit_vector(rec.p - center);
+        if (root > ray_t.max) return false;
         return true;
 
     }
