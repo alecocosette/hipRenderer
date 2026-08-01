@@ -16,7 +16,7 @@ class sphere : public hittable{
         vec3 oc = center - r.orig();
         auto a = r.dir().length_squared();
         auto h = dot(r.dir(),oc);
-        auto c = dot(oc,oc) - h*h;
+        auto c = dot(oc,oc) - radius*radius;
         auto discriminant = h*h - a*c;
         if (discriminant < 0) return false;
 

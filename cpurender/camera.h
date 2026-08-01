@@ -7,6 +7,8 @@
 
 #include "hittable.h"
 
+#include <fstream>
+
 class camera {
 
 public:
@@ -15,10 +17,12 @@ public:
     double aspect_ratio = 1.0;  // Ratio of image width over height
     int    image_width  = 100;  // Rendered image width in pixel count
     int    samples_per_pixel = 10;
-    void render(const hittable& world) {
+    void render(const hittable& world, const std::string& filename = "image.ppm") {
         initialize();
 
-        std::cout << "P3\n" << image_width << ' ' << image_height << "\n255\n";
+        std::ofstream out(filename, std::ios::binary);
+
+        out << "P3\n" << image_width << ' ' << image_height << "\n255\n";
 
         for (int j = 0; j < image_height; j++) {
             std::clog << "\rScanlines remaining: " << (image_height - j) << ' ' << std::flush;
@@ -28,7 +32,7 @@ public:
                     ray r = get_ray(i, j);
                     pixel_color += ray_color(r, world);
                 }
-                write_color(std::cout, pixel_samples_scale * pixel_color);
+                write_color(out, pixel_samples_scale * pixel_color);
             }
         }
 
@@ -91,7 +95,8 @@ private:
         hit_record rec;
 
         if (world.hit(r, interval(0, infinity), rec)) {
-            return 0.5 * (rec.normal + color(1,1,1));
+            vec3 direction = random_on_hemisphere(rec.normal);
+            return 0.5 * ray_color(ray(rec.p, direction), world);
         }
 
         vec3 unit_direction = unit_vector(r.dir());
