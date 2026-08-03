@@ -11,7 +11,8 @@
 
 class sphere : public hittable{
     public:
-    sphere(const point3& center, double radius) : center(center), radius(std::max(0.0, radius)) {}
+    sphere(const point3& center, double radius, shared_ptr<material> mat)
+      : center(center), radius(radius), mat(mat) {}
     bool hit(const ray& r, interval ray_t, hit_record& rec) const override  {
         vec3 oc = center - r.orig();
         auto a = r.dir().length_squared();
@@ -28,7 +29,9 @@ class sphere : public hittable{
         }
         rec.t = root;
         rec.p = r.whereAt(rec.t);
-        rec.normal = unit_vector(rec.p - center);
+        vec3 outward_normal = (rec.p - center) / radius;
+        rec.set_face_normal(r, outward_normal);
+        rec.mat_ptr = mat;
         if (root > ray_t.max) return false;
         return true;
 
@@ -37,6 +40,7 @@ class sphere : public hittable{
 private:
     point3 center;
     double radius;
+    shared_ptr<material> mat;
 };
 
 

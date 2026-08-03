@@ -13,4 +13,6 @@ add_executable(gurt cpurender/gurt.cpp
         cpurender/hittable_list.h
         cpurender/rtweekend.h
         cpurender/interval.h
-        cpurender/camera.h)
+        cpurender/camera.h
+        cpurender/material.h
+)
