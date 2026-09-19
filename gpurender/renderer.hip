@@ -1,7 +1,7 @@
 // gpu/renderer.hip
 // Naive one-thread-per-pixel HIP port of the CPU path tracer (RTIOW Book 1, Ch.13 scene).
-// No virtual dispatch, no dynamic allocation inside the kernel — GPU kernels can't do either.
-// Materials are a tagged struct (enum + params) instead of a class hierarchy.
+// UPDATED: scene data now staged into shared memory per block instead of read from
+// global memory on every bounce of every sample.
 
 #include <hip/hip_runtime.h>
 #include <cstdio>
@@ -123,7 +123,6 @@ __device__ inline double rand_double(unsigned int& state) {
     return (xorshift32(state) & 0xFFFFFF) / (double)0x1000000;
 }
 __device__ inline vec3 random_unit_vector(unsigned int& state) {
-    // rejection sampling, GPU-friendly (bounded loop)
     while (true) {
         vec3 p(2*rand_double(state)-1, 2*rand_double(state)-1, 2*rand_double(state)-1);
         double lensq = p.length_squared();
@@ -131,7 +130,7 @@ __device__ inline vec3 random_unit_vector(unsigned int& state) {
     }
 }
 
-// ---------- material scatter (branch on tag — this is exactly the divergence week 4 removes) ----------
+// ---------- material scatter ----------
 __device__ bool scatter(const Material& mat, const ray& r_in, const hit_record& rec,
                          color& attenuation, ray& scattered, unsigned int& rng_state) {
     if (mat.type == LAMBERTIAN) {
@@ -148,17 +147,17 @@ __device__ bool scatter(const Material& mat, const ray& r_in, const hit_record& 
         attenuation = mat.albedo;
         return dot(scattered.dir, rec.normal) > 0;
     }
-    else { // DIELECTRIC — simplified, no Fresnel/Schlick yet, just refraction-or-reflect stub
+    else { // DIELECTRIC — simplified stub, reflection only
         attenuation = color(1.0, 1.0, 1.0);
         double ri = rec.front_face ? (1.0/mat.ref_idx) : mat.ref_idx;
         vec3 unit_direction = unit_vector(r_in.dir);
         vec3 reflected = reflect(unit_direction, rec.normal);
-        scattered = ray(rec.p, reflected); // TODO: real refraction, matches CPU version's later chapters
+        scattered = ray(rec.p, reflected);
         return true;
     }
 }
 
-// ---------- ray_color (iterative, NOT recursive — GPU kernels can't recurse) ----------
+// ---------- ray_color (iterative, NOT recursive) ----------
 __device__ color ray_color(ray r, const Sphere* spheres, int n_spheres, int max_depth, unsigned int& rng_state) {
     color accumulated(1.0, 1.0, 1.0);
 
@@ -180,14 +179,30 @@ __device__ color ray_color(ray r, const Sphere* spheres, int n_spheres, int max_
             return vec3(accumulated.x*sky.x, accumulated.y*sky.y, accumulated.z*sky.z);
         }
     }
-    return vec3(0,0,0); // exceeded bounce depth
+    return vec3(0,0,0);
 }
 
+// >>> CHANGED: kernel now stages the scene into shared memory <
 // ---------- the kernel: one thread per pixel ----------
+// Optimization: the scene (sphere array) is read by every thread on every bounce
+// of every sample — that's global memory traffic hit thousands of times per pixel.
+// Since all threads in a block trace against the SAME scene, we stage it into
+// shared memory once per block instead of re-reading global memory each time.
 __global__ void render_kernel(vec3* framebuffer, int width, int height,
                                point3 pixel00_loc, vec3 pixel_delta_u, vec3 pixel_delta_v,
                                point3 cam_center, int samples_per_pixel, int max_depth,
                                const Sphere* spheres, int n_spheres) {
+    extern __shared__ Sphere shared_spheres[];
+
+    // Cooperative load: threads in the block split up the copy work instead of
+    // one thread doing it alone. Safe as long as n_spheres <= block size.
+    int tid = threadIdx.y * blockDim.x + threadIdx.x;
+    int block_size = blockDim.x * blockDim.y;
+    for (int idx = tid; idx < n_spheres; idx += block_size) {
+        shared_spheres[idx] = spheres[idx];
+    }
+    __syncthreads(); // every thread waits until the whole scene is staged
+
     int i = blockIdx.x * blockDim.x + threadIdx.x; // column
     int j = blockIdx.y * blockDim.y + threadIdx.y; // row
     if (i >= width || j >= height) return;
@@ -203,7 +218,8 @@ __global__ void render_kernel(vec3* framebuffer, int width, int height,
                            + ((j + dv) * pixel_delta_v);
         vec3 ray_dir = pixel_sample - cam_center;
         ray r(cam_center, ray_dir);
-        pixel_color = pixel_color + ray_color(r, spheres, n_spheres, max_depth, rng_state);
+        pixel_color = pixel_color + ray_color(r, shared_spheres, n_spheres, max_depth, rng_state);
+        //                                        ^^^^^^^^^^^^^^ was "spheres" (global) — now reads shared memory
     }
     pixel_color = pixel_color / (double)samples_per_pixel;
 
@@ -247,7 +263,7 @@ int main() {
     int image_height = int(image_width / aspect_ratio);
     image_height = (image_height < 1) ? 1 : image_height;
 
-    // ---- camera (matches CPU chapter 11/12 positionable camera, no defocus blur yet) ----
+    // ---- camera ----
     point3 lookfrom(13,2,3);
     point3 lookat(0,0,0);
     vec3 vup(0,1,0);
@@ -272,13 +288,13 @@ int main() {
     point3 viewport_upper_left = lookfrom - (focal_length*w) - viewport_u/2 - viewport_v/2;
     point3 pixel00_loc = viewport_upper_left + 0.5 * (pixel_delta_u + pixel_delta_v);
 
-    // ---- scene: ground + 3 spheres, same as CPU chapter 13 core trio ----
+    // ---- scene: ground + 3 spheres ----
     const int n_spheres = 4;
     Sphere h_spheres[n_spheres] = {
-        { point3(0,-1000,0), 1000, { LAMBERTIAN, color(0.5,0.5,0.5), 0, 0 } },   // ground
-        { point3(0,1,0),     1.0,  { DIELECTRIC, color(1,1,1),       0, 1.5 } }, // glass
-        { point3(-4,1,0),    1.0,  { LAMBERTIAN, color(0.4,0.2,0.1), 0, 0 } },   // diffuse
-        { point3(4,1,0),     1.0,  { METAL,      color(0.7,0.6,0.5), 0.0, 0 } }  // metal
+        { point3(0,-1000,0), 1000, { LAMBERTIAN, color(0.5,0.5,0.5), 0, 0 } },
+        { point3(0,1,0),     1.0,  { DIELECTRIC, color(1,1,1),       0, 1.5 } },
+        { point3(-4,1,0),    1.0,  { LAMBERTIAN, color(0.4,0.2,0.1), 0, 0 } },
+        { point3(4,1,0),     1.0,  { METAL,      color(0.7,0.6,0.5), 0.0, 0 } }
     };
 
     Sphere* d_spheres;
@@ -295,7 +311,9 @@ int main() {
     int samples_per_pixel = 50;
     int max_depth = 10;
 
-    hipLaunchKernelGGL(render_kernel, blocks, threads, 0, 0,
+    // >>> CHANGED: shared memory size passed as 3rd launch argument (was 0) <
+    size_t shared_mem_bytes = n_spheres * sizeof(Sphere);
+    hipLaunchKernelGGL(render_kernel, blocks, threads, shared_mem_bytes, 0,
                         d_framebuffer, image_width, image_height,
                         pixel00_loc, pixel_delta_u, pixel_delta_v, lookfrom,
                         samples_per_pixel, max_depth, d_spheres, n_spheres);
